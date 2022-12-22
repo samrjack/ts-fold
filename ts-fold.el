@@ -110,6 +110,11 @@ the fold in a cons cell.  See `ts-fold-range-python' for an example."
   :type 'string
   :group 'ts-fold)
 
+(defcustom ts-fold-always-use nil
+  "Non-nil if `ts-fold-always-use' is enabled."
+  :type 'symbol
+  :group 'ts-fold)
+
 (defface ts-fold-replacement-face
   '((t :foreground "#808080" :box '(:line-width -1 :style 'pressed-button)))
   "Face used to display the fold replacement text."
@@ -161,9 +166,54 @@ the fold in a cons cell.  See `ts-fold-range-python' for an example."
   :lighter "TS-Fold"
   (if ts-fold-mode (ts-fold--enable) (ts-fold--disable)))
 
+;; To be deprecated since it does not allow for proper tear-down
+;; when deactivated.
+
 ;;;###autoload
 (define-global-minor-mode global-ts-fold-mode ts-fold-mode
   (lambda () (ts-fold-mode 1)))
+
+;;; Instead of making a global mode, a hook can be added to tree-sitter-mode
+;;; that activates and deactivates ts-fold mode.
+(defun ts-fold-always-use (&optional arg)
+  "Turn on TS fold whenever possible.
+
+If called interactively, toggle the settings.
+
+If called from Lisp, toggle the mode if ARG is toggle.  Enable the
+mode if ARG is nil, omitted, or is a positive number.  Disable the
+mode if ARG is a negative number."
+  (interactive)
+  ;; Behavior indicates whether the the mode should be turned on or off.
+  (let ((behavior (cond
+                   ((eq arg 'toggle) (not ts-fold-always-use))
+                   ((and (numberp arg) (< arg 1)) nil)
+                   ((called-interactively-p 'any) (not ts-fold-always-use))
+                   (t t))))
+    (if behavior
+        ;; Turn on
+        (progn
+          (add-hook 'tree-sitter-mode-hook #'ts-fold--tree-sitter-trigger)
+          ;; try to turn on in all buffers.
+          (dolist (buf (buffer-list))
+            (with-current-buffer buf
+              (ts-fold--tree-sitter-trigger)))
+          (setq ts-fold-always-use t))
+      ;; turn off
+      (remove-hook 'tree-sitter-mode-hook #'ts-fold--tree-sitter-trigger)
+      (setq ts-fold-always-use nil))))
+
+(defun ts-fold--tree-sitter-trigger ()
+  "Turn `ts-fold-mode' on and off alongside `tree-sitter-mode'
+when in a mode ts-fold can act on."
+  (if (and tree-sitter-mode (ts-fold-usable-mode-p))
+      (ts-fold-mode 1)
+    (ts-fold-mode -1)))
+
+(defun ts-fold-usable-mode-p (&optional mode)
+  "Return non-nil if `ts-fold' has defined folds for MODE."
+  (let ((mode (or mode major-mode)))
+    (alist-get mode ts-fold-range-alist)))
 
 ;;
 ;; (@* "Core" )
